@@ -7,33 +7,39 @@ import pyudev
 BACKUP_FOLDER_TEMP = "/tmp/usb_temp_backup"
 
 def is_usb_drive(device):
+    """Проверяет, является ли устройство USB-накопителем."""
     try:
-        if device.get('ID_BUS') == 'usb' and device.get('DEVTYPE') == 'partition':
-            return True
-        return False
+        return (
+            device.get('ID_BUS') == 'usb'
+            and device.get('DEVTYPE') == 'partition'
+            and device.get('ID_FS_TYPE')  # Только устройства с файловой системой
+        )
     except Exception:
         return False
 
 def list_available_drives():
+    """Возвращает список доступных USB-устройств."""
     drives = {}
     context = pyudev.Context()
 
     for idx, device in enumerate(context.list_devices(subsystem='block', DEVTYPE='partition'), start=1):
         if is_usb_drive(device):
-            mount_point = device.attributes.asstring('mountpoint') if 'mountpoint' in device.attributes else None
+            mount_point = device.get('ID_FS_MOUNTPOINT')
             size = device.attributes.asstring('size') if 'size' in device.attributes else "Unknown"
             if mount_point:
                 drives[idx] = {
                     "device": device.device_node,
-                    "size": f"{int(size) // (1024 * 1024 * 1024)} GB",
+                    "size": f"{int(size) // (1024 * 1024 * 1024)} GB" if size.isdigit() else "Unknown",
                     "mount_point": mount_point,
                 }
     return drives
 
 def choose_backup_drive():
+    """Позволяет пользователю выбрать диск для сохранения бэкапа."""
     drives = list_available_drives()
     if not drives:
         print("NO AVAILABLE DRIVES FOUND!")
+        print("Ensure the USB drive is connected and mounted.")
         exit(1)
 
     print("AVAILABLE DRIVES:")
@@ -50,6 +56,7 @@ def choose_backup_drive():
         print("INVALID CHOICE. PLEASE TRY AGAIN.")
 
 def backup_usb_to_temp(mount_point):
+    """Создает временный бэкап USB-устройства."""
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     backup_path = os.path.join(BACKUP_FOLDER_TEMP, f"USB_Backup_{timestamp}")
     os.makedirs(backup_path, exist_ok=True)
@@ -74,6 +81,7 @@ def backup_usb_to_temp(mount_point):
     return backup_path
 
 def copy_temp_to_final(temp_path, final_drive):
+    """Копирует временный бэкап на финальный диск."""
     final_path = os.path.join(final_drive, os.path.basename(temp_path))
     print(f"COPYING BACKUP FROM {temp_path} TO {final_path}...")
 
@@ -84,6 +92,7 @@ def copy_temp_to_final(temp_path, final_drive):
         print(f"ERROR DURING FINAL BACKUP: {e}")
 
 def monitor_usb(final_backup_drive):
+    """Мониторит подключение USB-устройств."""
     print("WAITING FOR USB...")
     context = pyudev.Context()
     monitor = pyudev.Monitor.from_netlink(context)
